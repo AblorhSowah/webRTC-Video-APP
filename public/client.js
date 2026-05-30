@@ -38,6 +38,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     var transfers  = [];  // all transfer records
 
+    var chatHistory  = {};  // peerName → [{from, text, ts}]
+    var chatUnread   = 0;
+
+    var mediaRecorder = null;
+    var recordChunks  = [];
+    var isRecording   = false;
+
     // ── DOM ────────────────────────────────────────────────────────────────
     var loginPage        = document.getElementById('loginPage');
     var appPage          = document.getElementById('appPage');
@@ -66,6 +73,16 @@ document.addEventListener('DOMContentLoaded', function () {
     var clearDoneBtn     = document.getElementById('clearDoneBtn');
     var navMainEl        = document.getElementById('navMainEl');
     var toastStack       = document.getElementById('toastStack');
+
+    // Chat & voice
+    var chatTabBtn     = document.getElementById('chatTabBtn');
+    var chatTabBadge   = document.getElementById('chatTabBadge');
+    var filesTab       = document.getElementById('filesTab');
+    var chatTab        = document.getElementById('chatTab');
+    var chatMessages   = document.getElementById('chatMessages');
+    var chatInput      = document.getElementById('chatInput');
+    var chatSendBtn    = document.getElementById('chatSendBtn');
+    var voiceRecordBtn = document.getElementById('voiceRecordBtn');
 
     // ── Utilities ──────────────────────────────────────────────────────────
     function esc(str) {
@@ -249,6 +266,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (window.innerWidth < 768) sidebar.classList.remove('open');
 
         renderUserList();
+
+        // Reset chat unread badge for new peer
+        chatUnread = 0;
+        if (chatTabBadge) { chatTabBadge.textContent = '0'; chatTabBadge.classList.add('hidden'); }
+        if (chatTabBtn && chatTabBtn.classList.contains('active')) renderChat(name);
 
         var p = peers[name];
         if (!p || p.state === 'idle' || p.state === 'disconnected') {
@@ -611,6 +633,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
         } else if (msg.type === 'file-end') {
             completeReceive(msg.id);
+        } else if (msg.type === 'chat') {
+            appendChatMsg(peerName, { from: peerName, text: msg.text, ts: msg.ts });
+            showToast(peerName, (msg.text || '').slice(0, 80), 'info');
+            tryNotify(peerName, msg.text || '');
         }
     }
 
@@ -749,6 +775,9 @@ document.addEventListener('DOMContentLoaded', function () {
             actionHtml = '<button class="ti-download-btn" data-url="' + esc(t.blobUrl) + '" data-name="' + esc(t.name) + '">' +
                            '<i class="fa fa-download"></i> Save file' +
                          '</button>';
+            if (/^audio\//i.test(t.mime)) {
+                actionHtml += '<audio class="ti-audio-player" controls src="' + esc(t.blobUrl) + '"></audio>';
+            }
         }
 
         el.innerHTML =
@@ -825,6 +854,163 @@ document.addEventListener('DOMContentLoaded', function () {
     // ── Sidebar ────────────────────────────────────────────────────────────
     sidebarToggle.addEventListener('click', function() { sidebar.classList.toggle('open'); });
     sidebarClose.addEventListener('click',  function() { sidebar.classList.remove('open'); });
+
+    // ── Panel tabs ─────────────────────────────────────────────────────────
+    document.querySelectorAll('.panel-tab').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            var tab = this.dataset.tab;
+            document.querySelectorAll('.panel-tab').forEach(function(b) { b.classList.remove('active'); });
+            this.classList.add('active');
+            filesTab.classList.toggle('hidden', tab !== 'files');
+            chatTab.classList.toggle('hidden', tab !== 'chat');
+            if (tab === 'chat') {
+                chatUnread = 0;
+                if (chatTabBadge) { chatTabBadge.textContent = '0'; chatTabBadge.classList.add('hidden'); }
+                if (activePeer) renderChat(activePeer);
+                setTimeout(function() {
+                    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+                }, 0);
+            }
+        });
+    });
+
+    // ── Chat ───────────────────────────────────────────────────────────────
+    function renderChat(peerName) {
+        if (!chatMessages) return;
+        var msgs = chatHistory[peerName] || [];
+        chatMessages.innerHTML = '';
+        if (!msgs.length) {
+            var empty = document.createElement('div');
+            empty.className = 'chat-empty';
+            empty.innerHTML = '<i class="fa fa-comments-o"></i><p>No messages yet. Say hello!</p>';
+            chatMessages.appendChild(empty);
+            return;
+        }
+        msgs.forEach(function(m) { chatMessages.appendChild(buildChatMsgEl(m)); });
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function buildChatMsgEl(m) {
+        var el     = document.createElement('div');
+        var isMine = (m.from === myName);
+        el.className = 'chat-msg ' + (isMine ? 'chat-msg-mine' : 'chat-msg-theirs');
+        var time = new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        el.innerHTML =
+            '<div class="chat-bubble">' + esc(m.text) + '</div>' +
+            '<div class="chat-meta">' + esc(isMine ? 'You' : m.from) + '\u00a0\u00b7\u00a0' + time + '</div>';
+        return el;
+    }
+
+    function appendChatMsg(peerName, msgObj) {
+        chatHistory[peerName] = chatHistory[peerName] || [];
+        chatHistory[peerName].push(msgObj);
+
+        var isChatTabOpen = chatTabBtn && chatTabBtn.classList.contains('active');
+        if (peerName === activePeer && isChatTabOpen) {
+            if (chatMessages) {
+                chatMessages.appendChild(buildChatMsgEl(msgObj));
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+        } else {
+            chatUnread++;
+            if (chatTabBadge) {
+                chatTabBadge.textContent = chatUnread;
+                chatTabBadge.classList.remove('hidden');
+            }
+        }
+    }
+
+    function sendChatMsg(peerName, text) {
+        text = (text || '').trim();
+        if (!text) return;
+        var p = peers[peerName];
+        if (!p || p.state !== 'connected' || !p.dc || p.dc.readyState !== 'open') {
+            showToast('Not connected', 'Establish a connection with ' + peerName + ' first.', 'error');
+            return;
+        }
+        var ts  = Date.now();
+        p.dc.send(JSON.stringify({ type: 'chat', text: text, ts: ts }));
+        appendChatMsg(peerName, { from: myName, text: text, ts: ts });
+    }
+
+    if (chatSendBtn) {
+        chatSendBtn.addEventListener('click', function() {
+            if (!activePeer || !chatInput) return;
+            sendChatMsg(activePeer, chatInput.value);
+            chatInput.value = '';
+        });
+    }
+
+    if (chatInput) {
+        chatInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey && activePeer) {
+                e.preventDefault();
+                sendChatMsg(activePeer, chatInput.value);
+                chatInput.value = '';
+            }
+        });
+    }
+
+    // ── Voice recording ────────────────────────────────────────────────────
+    function startRecording() {
+        if (!activePeer) {
+            showToast('No peer selected', 'Choose someone to send the recording to.', 'error');
+            return;
+        }
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast('Not supported', 'Your browser does not support microphone access.', 'error');
+            return;
+        }
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+                recordChunks  = [];
+                mediaRecorder = new MediaRecorder(stream);
+
+                mediaRecorder.ondataavailable = function(e) {
+                    if (e.data && e.data.size > 0) recordChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = function() {
+                    stream.getTracks().forEach(function(t) { t.stop(); });
+                    if (!recordChunks.length) return;
+                    var mime = mediaRecorder.mimeType || 'audio/webm';
+                    var ext  = /ogg/i.test(mime) ? 'ogg' : /mp4/i.test(mime) ? 'mp4' : 'webm';
+                    var ts   = new Date().toISOString().replace(/[:.]/g, '-');
+                    var blob = new Blob(recordChunks, { type: mime });
+                    var file = new File([blob], 'voice-' + ts + '.' + ext, { type: mime });
+                    queueFiles(activePeer, [file]);
+                    isRecording = false;
+                    if (voiceRecordBtn) {
+                        voiceRecordBtn.classList.remove('recording');
+                        voiceRecordBtn.title = 'Record voice message';
+                        voiceRecordBtn.innerHTML = '<i class="fa fa-microphone"></i>';
+                    }
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                if (voiceRecordBtn) {
+                    voiceRecordBtn.classList.add('recording');
+                    voiceRecordBtn.title = 'Stop recording';
+                    voiceRecordBtn.innerHTML = '<i class="fa fa-stop"></i>';
+                }
+            })
+            .catch(function(err) {
+                showToast('Microphone error', err.message || 'Could not access microphone.', 'error');
+            });
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+    }
+
+    if (voiceRecordBtn) {
+        voiceRecordBtn.addEventListener('click', function() {
+            if (isRecording) { stopRecording(); } else { startRecording(); }
+        });
+    }
 
     // ── Socket connection state ────────────────────────────────────────────
     socket.on('disconnect', function() { setStatus('Offline', ''); });

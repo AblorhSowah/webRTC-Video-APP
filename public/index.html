@@ -121,37 +121,64 @@
                 </div>
             </div>
 
-            <!-- Drop zone -->
-            <div id="dropZone" class="drop-zone">
-                <div class="drop-zone-content">
-                    <i class="fa fa-cloud-upload drop-zone-icon"></i>
-                    <div class="drop-zone-title">Drop files here to send</div>
-                    <div class="drop-zone-sub">or click to browse from your device</div>
-                    <button id="browseFilesBtn" class="browse-btn">
-                        <i class="fa fa-folder-open-o"></i>&nbsp; Choose Files
-                    </button>
-                </div>
-                <input type="file" id="filePickerInput" multiple style="display:none">
+            <!-- Panel tabs -->
+            <div class="panel-tabs">
+                <button class="panel-tab active" data-tab="files"><i class="fa fa-exchange"></i> Files</button>
+                <button class="panel-tab" data-tab="chat" id="chatTabBtn">
+                    <i class="fa fa-comments"></i> Chat
+                    <span id="chatTabBadge" class="tab-badge hidden">0</span>
+                </button>
             </div>
 
-            <!-- Transfer list -->
-            <div class="transfers-section">
-                <div class="transfers-header">
-                    <span class="transfers-title">
-                        <i class="fa fa-exchange"></i> Transfers
-                        <span id="transferBadge" class="transfer-badge hidden">0</span>
-                    </span>
-                    <button id="clearDoneBtn" class="clear-done-btn">
-                        <i class="fa fa-trash-o"></i> Clear done
+            <!-- Files tab -->
+            <div id="filesTab" class="tab-content">
+                <!-- Drop zone -->
+                <div id="dropZone" class="drop-zone">
+                    <div class="drop-zone-content">
+                        <i class="fa fa-cloud-upload drop-zone-icon"></i>
+                        <div class="drop-zone-title">Drop files here to send</div>
+                        <div class="drop-zone-sub">or click to browse from your device</div>
+                        <button id="browseFilesBtn" class="browse-btn">
+                            <i class="fa fa-folder-open-o"></i>&nbsp; Choose Files
+                        </button>
+                    </div>
+                    <input type="file" id="filePickerInput" multiple style="display:none">
+                </div>
+
+                <!-- Transfer list -->
+                <div class="transfers-section">
+                    <div class="transfers-header">
+                        <span class="transfers-title">
+                            <i class="fa fa-exchange"></i> Transfers
+                            <span id="transferBadge" class="transfer-badge hidden">0</span>
+                        </span>
+                        <button id="clearDoneBtn" class="clear-done-btn">
+                            <i class="fa fa-trash-o"></i> Clear done
+                        </button>
+                    </div>
+                    <div id="transferEmptyState" class="transfer-empty-state">
+                        <i class="fa fa-inbox"></i>
+                        <p>No transfers yet. Drop or select files above to send to
+                            <strong id="transferEmptyName">your peer</strong>.
+                        </p>
+                    </div>
+                    <div id="transferList" class="transfer-list"></div>
+                </div>
+            </div>
+
+            <!-- Chat tab -->
+            <div id="chatTab" class="tab-content hidden">
+                <div id="chatMessages" class="chat-messages"></div>
+                <div class="chat-input-bar">
+                    <button id="voiceRecordBtn" class="voice-btn" title="Record voice message">
+                        <i class="fa fa-microphone"></i>
+                    </button>
+                    <input type="text" id="chatInput" class="chat-input"
+                           placeholder="Type a message…" maxlength="2000" autocomplete="off">
+                    <button id="chatSendBtn" class="chat-send-btn" title="Send">
+                        <i class="fa fa-paper-plane"></i>
                     </button>
                 </div>
-                <div id="transferEmptyState" class="transfer-empty-state">
-                    <i class="fa fa-inbox"></i>
-                    <p>No transfers yet. Drop or select files above to send to
-                        <strong id="transferEmptyName">your peer</strong>.
-                    </p>
-                </div>
-                <div id="transferList" class="transfer-list"></div>
             </div>
         </div>
 
